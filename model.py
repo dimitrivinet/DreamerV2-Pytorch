@@ -177,7 +177,7 @@ class WorldModel(nn.Module):
 
     def dream(self, a, x, z, h):
         #TODO
-        h = self.compute_h(a.shape[0], x.device, a, h, z)
+        h = self.compute_h(x.shape[0], x.device, a, h, z)
 
         z_hat_logits = self.transition_predictor(h)
         z_hat_sample = self.compute_z_hat_sample(z_hat_logits)
