@@ -19,7 +19,7 @@ from model import WorldModel, Actor, Critic, LossModel, ActorLoss, CriticLoss
 
 ### HYPERPARAMETERS ###
 save_path = "save.chkpt"
-env_name = #TODO
+env_name = "TimePilot-v0"
 env = gym.make(env_name, frameskip = 4)
 num_actions = env.action_space.n
 
@@ -101,7 +101,31 @@ random_action_dist = torch.distributions.one_hot_categorical.OneHotCategorical(
 )
 
 def gather_episode():
-    #TODO
+    with torch.no_grad():
+        while True:
+            obs = env.reset()
+            obs = transform_obs(obs)
+            episode = [obs]
+            obs = obs.cuda()
+            z_sample, h = world(None, obs, None, inference=True)
+            done = False
+            while not done:
+                # env.render()
+                a = actor(z_sample)
+                a = torch.distributions.one_hot_categorical.OneHotCategorical(
+                    logits = a
+                ).sample()
+                obs, rew, done, _ = env.step(int((a.cpu()*tensor_range).sum().round())) # take a random action (int)
+                obs = transform_obs(obs)
+                obs = obs.cuda()
+                episode.extend([a.cpu(), tanh(rew), done, obs.cpu()])
+                if not done:
+                    z_sample, h = world(a, obs, z_sample.reshape(-1, 1024), h, inference=True)
+                # plt.imshow(obs[0].cpu().numpy().transpose(1,2,0)/2+0.5)
+                # plt.show()
+            history.append(episode)
+            for _ in range(len(history) - history_size):
+                history.pop(0)
 
 #start gathering episode thread
 t = threading.Thread(target=gather_episode)
@@ -148,6 +172,38 @@ while True:
 
         ### Train world model ###
         #TODO
+        loss_model = 0
+        for i in range(s.shape[1]):
+            z = None if len(z_list) == 0 else z_list[-1]
+            h = None if len(h_list) == 0 else h_list[-1]
+            z_logits, z_sample, z_hat_logits, x_hat, \
+                r_hat, gamma_hat, h, _ = world(
+                    a[:,t],
+                    s[:,t+1],
+                    z,
+                    h=h,
+                    dream=False,
+                    inference=False,
+            )
+
+            z_list.append(z_sample)
+            h_list.append(h)
+
+            loss_model += criterionModel(
+                s[:,t+1],
+                r[:,t],
+                gamma[:,t],
+                z_logits,
+                z_sample,
+                x_hat,
+                r_hat,
+                gamma_hat,
+                z_hat_logits,
+            )
+        
+        loss_model.backward()
+        optim_model.step()
+        optim_model.zero_grad()
 
         ### Train actor critic ###
         #store every value to compute V since we sum backwards
